@@ -49,32 +49,42 @@ function renderFocus(){
  if(!points.length){$('focus-svg').innerHTML='';$('region-key').textContent='この縮尺の国境データには形状がありません。';return}
  const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys),cx=(xmin+xmax)/2,cy=(ymin+ymax)/2;
- const cos=Math.cos(cy*Math.PI/180),scale=Math.min(510/((xmax-xmin)*cos||1),350/(ymax-ymin||1));
- const project=([lon,lat])=>[300+(lon-cx)*cos*scale,220-(lat-cy)*scale];
+ const compact=$('country-focus').clientWidth<620,hasRegions=!!coffeeRegions[c.id];
+ const width=compact?600:900,height=compact&&hasRegions?760:500;
+ const mapX=width/2,mapY=compact&&hasRegions?380:250;
+ const mapWidth=hasRegions?(compact?510:470):width-70,mapHeight=compact&&hasRegions?330:410;
+ $('focus-svg').setAttribute('viewBox',`0 0 ${width} ${height}`);
+ const cos=Math.cos(cy*Math.PI/180),scale=Math.min(mapWidth/((xmax-xmin)*cos||1),mapHeight/(ymax-ymin||1));
+ const project=([lon,lat])=>[mapX+(lon-cx)*cos*scale,mapY-(lat-cy)*scale];
  const path=s=>'M'+s.ring.map(p=>project(p).map(n=>n.toFixed(2)).join(',')).join('L')+'Z';
- const near=mapShapes.filter(s=>s.ring.some(p=>{let [x,y]=project(p);return x>-100&&x<700&&y>-100&&y<540}));
+ const near=mapShapes.filter(s=>s.ring.some(p=>{let [x,y]=project(p);return x>-100&&x<width+100&&y>-100&&y<height+100}));
  $('focus-title').textContent=c.name+'の拡大地図';$('focus-svg').setAttribute('aria-label',c.name+'のみ色付けした地図。生産地域の名前と番号を地図内に表示');
- let svg=near.filter(s=>s.id!==c.id).map(s=>`<path class="focus-land" d="${path(s)}"/>`).join('');
+ let svg=`<defs><clipPath id="focus-land-clip"><rect x="${mapX-mapWidth/2-8}" y="${mapY-mapHeight/2-8}" width="${mapWidth+16}" height="${mapHeight+16}"/></clipPath></defs><g clip-path="url(#focus-land-clip)">`+near.filter(s=>s.id!==c.id).map(s=>`<path class="focus-land" d="${path(s)}"/>`).join('');
  svg+=shapes.map(s=>`<path class="focus-land chosen" data-shape="${esc(c.id)}" d="${path(s)}"/>`).join('');
+ svg+='</g>';
  let info=coffeeRegions[c.id],regionLabels='';
  if(info){
   const locations=info.regions.map(([name,lat,lon],i)=>({name,i,point:project([lon,lat])}));
-  const sorted=[...locations].sort((a,b)=>a.point[0]-b.point[0]);
+  const sorted=[...locations].sort((a,b)=>a.point[compact?1:0]-b.point[compact?1:0]);
   const mid=Math.ceil(sorted.length/2);
   [sorted.slice(0,mid),sorted.slice(mid)].forEach((side,col)=>{
-   side.sort((a,b)=>a.point[1]-b.point[1]);
+   side.sort((a,b)=>a.point[compact?0:1]-b.point[compact?0:1]);
    side.forEach(({name,i,point:[x,y]},row)=>{
-    const bx=col?399:9,by=18+row*(400/Math.max(side.length,1)),bw=192;
-    const chars=Array.from(name),lines=[];for(let n=0;n<chars.length;n+=8)lines.push(chars.slice(n,n+8).join(''));
-    const bh=Math.max(52,lines.length*24+14),anchorX=col?bx:bx+bw,anchorY=by+bh/2;
+    const bx=compact?10+(row%2)*300:(col?714:10);
+    const by=compact?(col?580:10)+Math.floor(row/2)*80:24+row*(448/Math.max(side.length,1));
+    const bw=compact?280:176,fontSize=compact?20:15,lineHeight=compact?24:20,wrap=compact?12:9;
+    const chars=Array.from(name),lines=[];for(let n=0;n<chars.length;n+=wrap)lines.push(chars.slice(n,n+wrap).join(''));
+    const bh=Math.max(46,lines.length*lineHeight+14);
+    const anchorX=compact?bx+bw/2:(col?bx:bx+bw),anchorY=compact?(col?by:by+bh):by+bh/2;
     svg+=`<g class="region-marker"><title>${i+1}：${esc(name)}（おおよその位置）</title><path class="region-lead" d="M${x},${y}L${anchorX},${anchorY}"/><circle class="region-point" cx="${x}" cy="${y}" r="5"/></g>`;
-    regionLabels+=`<g class="region-marker-label"><rect class="region-name-box" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="6"/><circle class="region-number" cx="${bx+17}" cy="${by+22}" r="12"/><text class="region-text" style="font-size:15px" x="${bx+17}" y="${by+22}">${i+1}</text><text class="region-name" x="${bx+34}" y="${by+27}">${lines.map((line,j)=>`<tspan x="${bx+34}" dy="${j?24:0}">${esc(line)}</tspan>`).join('')}</text></g>`;
+    regionLabels+=`<g class="region-marker-label"><rect class="region-name-box" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="6"/><circle class="region-number" cx="${bx+17}" cy="${by+22}" r="12"/><text class="region-text" style="font-size:15px" x="${bx+17}" y="${by+22}">${i+1}</text><text class="region-name" style="font-size:${fontSize}px" x="${bx+30}" y="${by+27}">${lines.map((line,j)=>`<tspan x="${bx+30}" dy="${j?lineHeight:0}">${esc(line)}</tspan>`).join('')}</text></g>`;
    });
   });
  }
  $('focus-svg').innerHTML=svg+regionLabels;
  $('region-key').innerHTML=info?`<h3 style="margin-top:14px">主なコーヒー生産地域</h3><ol class="region-key">${info.regions.map(([name],i)=>`<li><b>${i+1}</b><span>${esc(name)}</span></li>`).join('')}</ol><p class="focus-note">点は代表地点の概略です。地名と代表地点を線で結んでいます。生産地域の境界や面積を表すものではありません。教本写真外の補足情報です。</p><p class="focus-note">出典：<a href="${esc(info.source)}" target="_blank" rel="noopener">${esc(info.publisher)}</a>${info.extraSource?` ／ <a href="${esc(info.extraSource)}" target="_blank" rel="noopener">USDA・スマトラ南部の主産地</a>`:''}</p>`:'<p class="focus-note">選択した国・地域を色付けしています。主要産地の表示は、ブラジル・コロンビア・グアテマラ・インドネシア・エチオピア・タンザニアに対応しています。</p>';
 }
+let focusResizeFrame;window.addEventListener('resize',()=>{cancelAnimationFrame(focusResizeFrame);focusResizeFrame=requestAnimationFrame(()=>{if(zoomed)renderFocus()})});
 $('back-world').addEventListener('click',()=>{zoomed=false;renderMap();document.querySelector('#country-list button.active')?.focus({preventScroll:true})});
 
 const processInfo={
